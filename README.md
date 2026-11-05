@@ -43,12 +43,13 @@ Open the repo in Xcode and wait for any required dependencies to install.
 
 #### If you have your own developer certificate, these instructions do not apply to you. You can just build the IPA as normal. If you have a standard free developer account or a .p12/.mobileprovisioning file, you must follow these instructions below to build the IPA file.
 
-In Xcode, make sure you have the correct device set in the build target selector, most likely the "Any iOS Device (arm64)" option if you are installing on an iPhone/iPad. Change this to a simulator or catalyst for testing.
-On the top bar, navigate to Product > Build or click CMD + B
-This will now build (if successful) a .app file that contains everything needed for the app. 
-Go to Product > Show Build Folder in Finder > Products > debug-iphoneos and you will see a .app file and a folder. Copy the .app file into it's own new folder, and rename the folder "Payload" (This is case sensitive). Right click the folder, and click Compress "Payload".
-Rename this zip file to whatever you want the first half to be, with the file extension of .ipa
-It will now work. Good job, sideload it to your device however you'd like
+- In Xcode, make sure you have the correct device set in the build target selector, most likely the "Any iOS Device (arm64)" option if you are installing on an iPhone/iPad.
+- Change this to a simulator or catalyst for testing.
+- On the top bar, navigate to Product > Build or click CMD + B
+- This will now build (if successful) a .app file that contains everything needed for the app. 
+- Go to Product > Show Build Folder in Finder > Products > debug-iphoneos and you will see a .app file and a folder. Copy the .app file into it's own new folder, and rename the folder "Payload" (This is case sensitive). Right click the folder, and click Compress "Payload".
+- Rename this zip file to whatever you want the first half to be, with the file extension of .ipa
+- It will now work. Good job, sideload it to your device however you'd like
 
 ### Releases
 
