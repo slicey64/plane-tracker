@@ -4,6 +4,12 @@
 Lowkey built this because I got fed up with all of the other websites (FR24, PlaneFinder, etc.) bombarding with ads on mobile. This is free, open source, and can be modified to use any source required. I chose to specifically omit FR24 support from the app because in order to even use their API now, you have to pay $9 a month at the minimum. At that point, just use their app...
 
 There is support for extra data sources such as FlightAware's AeroAPI and a backup API-Ninjas aircraft specs API in the settings page, however they are not required for the full app to work. These are just if you want the extra data sources or those specific ones. With the data sources, you can also change out each one to have specific data points come from seperate sources. 
+    
+<p align="center">
+	<img src="images/route.PNG" width="32%" alt="UI example showing route" />
+	<img src="images/details.PNG" width="32%" alt="Details panel example" />
+	<img src="images/map.PNG" width="32%" alt="basic map ui" />
+</p>
 
 ## Basic Features
 - Worldwide ADS-B data tracking
