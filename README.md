@@ -6,14 +6,14 @@ Lowkey built this because I got fed up with all of the other websites (FR24, Pla
 There is support for extra data sources such as FlightAware's AeroAPI and a backup API-Ninjas aircraft specs API in the settings page, however they are not required for the full app to work. These are just if you want the extra data sources or those specific ones. With the data sources, you can also change out each one to have specific data points come from seperate sources. 
 
 ## Basic Features
-* Worldwide ADS-B data tracking
+- Worldwide ADS-B data tracking
 - ADS-B source switching including local dump1090 hosted feeders
 - Worldwide airport maps
 - Flight and airplane details page
 - UI customization page
 
 ### Details given by ADS-B that are listed in the app
-* Airline
+- Airline
 - Callsign
 - Tail number
 - Flight route (arrival/destination)
@@ -25,7 +25,7 @@ There is support for extra data sources such as FlightAware's AeroAPI and a back
 - Image of the airplane
 ## Getting Started
 ### Dependencies
-* Xcode 27.2 or higher
+- Xcode 27.2 or higher
 - An iOS device with iOS 26.0+ (for liquid glass support, if you want to compile without, you can use it on probably 16.1+)
 - Any Apple silicon Mac running 26.6+ (or whatever can run Xcode 27.2)
 
