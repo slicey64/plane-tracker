@@ -40,7 +40,9 @@ git clone https://github.com/slicey64/flight
 ```
 
 Open the repo in Xcode and wait for any required dependencies to install. 
-#### This is ONLY if you do not have a dev cert. This does not apply if you have a .p12 either, you are required to have the certificate on YOUR iCloud account. If you have a dev cert, you can use the archive tool in Xcode and build the IPA normally.
+
+#### If you have your own developer certificate, these instructions do not apply to you. You can just build the IPA as normal. If you have a standard free developer account or a .p12/.mobileprovisioning file, you must follow these instructions below to build the IPA file.
+
 In Xcode, make sure you have the correct device set in the build target selector, most likely the "Any iOS Device (arm64)" option if you are installing on an iPhone/iPad. Change this to a simulator or catalyst for testing.
 On the top bar, navigate to Product > Build or click CMD + B
 This will now build (if successful) a .app file that contains everything needed for the app. 
