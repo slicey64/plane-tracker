@@ -15,9 +15,10 @@ nonisolated struct JetPhoto: Sendable, Identifiable {
     let airline: String?
 }
 
-/// Model representing a live aircraft fetched from ADS-B feeders
+/// Model representing a live aircraft fetched from ADS-B feeders (Identifiable by ICAO hex)
 nonisolated struct LiveAircraft: Identifiable, Hashable, Sendable {
-    let id: String // hex icao address
+    /// Identifiable strictly by ICAO hex address
+    var id: String { hex }
     let hex: String
     var callsign: String?
     var registration: String?
@@ -36,6 +37,42 @@ nonisolated struct LiveAircraft: Identifiable, Hashable, Sendable {
     var airlineName: String?
     var registeredOwner: String?
     var manufacturer: String?
+
+    init(
+        hex: String,
+        callsign: String? = nil,
+        registration: String? = nil,
+        aircraftType: String? = nil,
+        latitude: Double,
+        longitude: Double,
+        altitudeBaro: Int? = nil,
+        groundSpeed: Double? = nil,
+        track: Double? = nil,
+        verticalRate: Int? = nil,
+        squawk: String? = nil,
+        category: String? = nil,
+        seen: Double? = nil,
+        airlineName: String? = nil,
+        registeredOwner: String? = nil,
+        manufacturer: String? = nil
+    ) {
+        self.hex = hex
+        self.callsign = callsign
+        self.registration = registration
+        self.aircraftType = aircraftType
+        self.latitude = latitude
+        self.longitude = longitude
+        self.altitudeBaro = altitudeBaro
+        self.groundSpeed = groundSpeed
+        self.track = track
+        self.verticalRate = verticalRate
+        self.squawk = squawk
+        self.category = category
+        self.seen = seen
+        self.airlineName = airlineName
+        self.registeredOwner = registeredOwner
+        self.manufacturer = manufacturer
+    }
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -86,7 +123,17 @@ nonisolated struct LiveAircraft: Identifiable, Hashable, Sendable {
     }
 
     static func == (lhs: LiveAircraft, rhs: LiveAircraft) -> Bool {
-        lhs.hex == rhs.hex
+        lhs.hex == rhs.hex &&
+        lhs.latitude == rhs.latitude &&
+        lhs.longitude == rhs.longitude &&
+        lhs.altitudeBaro == rhs.altitudeBaro &&
+        lhs.groundSpeed == rhs.groundSpeed &&
+        lhs.track == rhs.track &&
+        lhs.verticalRate == rhs.verticalRate &&
+        lhs.callsign == rhs.callsign &&
+        lhs.registration == rhs.registration &&
+        lhs.aircraftType == rhs.aircraftType &&
+        lhs.squawk == rhs.squawk
     }
 }
 

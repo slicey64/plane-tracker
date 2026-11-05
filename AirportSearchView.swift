@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// View allowing users to query airports from airports.csv and pin or view them on the map.
 struct AirportSearchView: View {
     var service: AirportDataService
     var onSelectAirport: ((Airport) -> Void)?

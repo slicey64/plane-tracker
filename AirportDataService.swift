@@ -43,11 +43,11 @@ final class AirportDataService {
     private(set) var isLoading: Bool = false
     private(set) var errorMessage: String?
 
-    private static var cacheDirectoryURL: URL? {
+    nonisolated private static var cacheDirectoryURL: URL? {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
     }
 
-    private static var intlCacheURL: URL? {
+    nonisolated private static var intlCacheURL: URL? {
         cacheDirectoryURL?.appendingPathComponent("intl_airports_v1.plist")
     }
 

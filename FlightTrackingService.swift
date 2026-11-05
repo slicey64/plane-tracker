@@ -19,6 +19,9 @@ final class FlightTrackingService {
     /// Cached JetPhotos by registration or hex
     private(set) var photos: [String: JetPhoto] = [:]
 
+    /// Cached aircraft enrichment data by registration or hex
+    private var enrichmentCache: [String: LiveAircraft] = [:]
+
     /// Photo loading state
     private(set) var isLoadingPhoto: Bool = false
 
@@ -91,14 +94,59 @@ final class FlightTrackingService {
                 return
             }
 
-            let parsedAircraft = try FlightTrackingService.parseAircraftData(data)
-            self.aircraft = parsedAircraft
+            // (5) Decode and filter ADS-B data off the main thread in a detached background task
+            let decodedAndFiltered = await Task.detached(priority: .userInitiated) { () -> [LiveAircraft] in
+                guard let parsed = try? FlightTrackingService.parseAircraftData(data) else {
+                    return []
+                }
+                // Pre-filter valid coordinates and recent positions off the main thread
+                return parsed.filter { plane in
+                    plane.latitude >= -90.0 && plane.latitude <= 90.0 &&
+                    plane.longitude >= -180.0 && plane.longitude <= 180.0
+                }
+            }.value
+
+            // (4) Diff updates instead of replacing the whole array to avoid AttributeGraph churn
+            self.applyAircraftUpdates(decodedAndFiltered)
             self.lastUpdated = Date()
             self.isLoading = false
         } catch {
             self.errorMessage = error.localizedDescription
             self.isLoading = false
         }
+    }
+
+    /// Diff incoming aircraft updates against existing array by ICAO hex instead of replacing the entire array
+    func applyAircraftUpdates(_ incoming: [LiveAircraft]) {
+        var existingIndices: [String: Int] = [:]
+        for (index, plane) in self.aircraft.enumerated() {
+            existingIndices[plane.hex] = index
+        }
+
+        let incomingHexes = Set(incoming.map { $0.hex })
+
+        // 1. Update in-place or append new arrivals
+        for incomingPlane in incoming {
+            if let idx = existingIndices[incomingPlane.hex] {
+                var merged = incomingPlane
+                let current = self.aircraft[idx]
+                if merged.airlineName == nil { merged.airlineName = current.airlineName }
+                if merged.registeredOwner == nil { merged.registeredOwner = current.registeredOwner }
+                if merged.manufacturer == nil { merged.manufacturer = current.manufacturer }
+                if merged.registration == nil { merged.registration = current.registration }
+                if merged.aircraftType == nil { merged.aircraftType = current.aircraftType }
+
+                // Only write if state actually changed to prevent unnecessary SwiftUI re-renders
+                if self.aircraft[idx] != merged {
+                    self.aircraft[idx] = merged
+                }
+            } else {
+                self.aircraft.append(incomingPlane)
+            }
+        }
+
+        // 2. Remove aircraft that left the radar scope
+        self.aircraft.removeAll { !incomingHexes.contains($0.hex) }
     }
 
     /// Fetch flight route for an aircraft callsign, using adsb.lol first and api.adsbdb.com as automatic backup
@@ -131,18 +179,25 @@ final class FlightTrackingService {
 
     /// Enrich aircraft information (registration, type, owner, airline) using api.adsbdb.com as backup
     func enrichAircraft(_ plane: LiveAircraft) async -> LiveAircraft {
-        var updated = plane
         let key = plane.registration ?? plane.hex
+        if let cached = enrichmentCache[key] {
+            return cached
+        }
+
+        var updated = plane
         let urlString = "https://api.adsbdb.com/v0/aircraft/\(key)"
         guard let url = URL(string: urlString) else { return updated }
 
         do {
             var request = URLRequest(url: url)
             request.setValue("FlightTrackerApp/1.0", forHTTPHeaderField: "User-Agent")
-            request.timeoutInterval = 4.0
+            request.timeoutInterval = 3.0
 
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else { return updated }
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                enrichmentCache[key] = updated
+                return updated
+            }
 
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let respObj = json["response"] as? [String: Any],
@@ -160,6 +215,7 @@ final class FlightTrackingService {
         } catch {
             // Silently ignore backup lookup errors
         }
+        enrichmentCache[key] = updated
         return updated
     }
 
@@ -356,7 +412,6 @@ final class FlightTrackingService {
             let seen = (item["seen"] as? Double) ?? (item["seen_pos"] as? Double)
 
             let aircraft = LiveAircraft(
-                id: hex,
                 hex: hex,
                 callsign: flight,
                 registration: reg,

@@ -85,8 +85,6 @@ struct ContentView: View {
         Self.mapLogger.info("[MapPerformance] Passing \(total) annotations to Map (\(airports) airports, \(aircraft) aircraft)")
         print("[MapPerformance] Passing \(total) annotations to Map (\(airports) airports, \(aircraft) aircraft)")
     }
-    @State private var isShowingAirportDetailSheet: Bool = false
-    @State private var isShowingAircraftDetailSheet: Bool = false
     @State private var isShowingAirportSearch: Bool = false
     @State private var isShowingQuickSearch: Bool = false
     @State private var isShowingSettings: Bool = false
@@ -207,8 +205,8 @@ struct ContentView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            // Fullscreen MKMapView wrapped in UIViewRepresentable
+        ZStack {
+            // Full-screen Map with minimal chrome
             FlightMapView(
                 aircraft: displayedAircraft,
                 airports: displayedAirports,
@@ -232,7 +230,6 @@ struct ContentView: View {
                     selectedAircraft = nil
                     flightService.clearActiveRoute()
                     selectedAirport = airport
-                    isShowingAirportDetailSheet = true
                 },
                 onDeselect: {
                     selectedAircraft = nil
@@ -248,26 +245,8 @@ struct ContentView: View {
                 }
             }
 
-            // Floating Controls Overlay
-            VStack(spacing: 12) {
-                // Top bar: Display Mode Picker & App Menu
-                topFloatingBar
-
-                Spacer()
-
-                // Bottom preview cards
-                if let selectedPlane = selectedAircraft, !isShowingAircraftDetailSheet {
-                    selectedAircraftQuickCard(selectedPlane)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 20)
-                } else if let selectedAir = selectedAirport, !isShowingAirportDetailSheet {
-                    selectedAirportQuickCard(selectedAir)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 20)
-                }
-            }
+            // Floating Controls Overlay: Small circular buttons floating in corners
+            cornerControlsOverlay
         }
         .sheet(isPresented: $isShowingAirportSearch) {
             AirportSearchView(service: airportService) { chosenAirport in
@@ -301,188 +280,237 @@ struct ContentView: View {
         .sheet(isPresented: $isShowingUICustomization) {
             UICustomizationSheet(settings: settings)
         }
-        .sheet(isPresented: $isShowingAirportDetailSheet) {
-            if let selected = selectedAirport {
-                AirportDetailSheet(
-                    airport: selected,
-                    service: airportService,
-                    onFocus: { airport in
-                        selectedAircraft = nil
-                        flightService.clearActiveRoute()
-                        selectedAirport = airport
-                        targetRegion = MKCoordinateRegion(
-                            center: airport.coordinate,
-                            span: MKCoordinateSpan(latitudeDelta: 0.3, longitudeDelta: 0.3)
-                        )
-                    }
-                )
-            }
+        .sheet(item: $selectedAirport) { airport in
+            AirportDetailSheet(
+                airport: airport,
+                service: airportService,
+                onFocus: { focusedAirport in
+                    selectedAircraft = nil
+                    flightService.clearActiveRoute()
+                    selectedAirport = focusedAirport
+                    targetRegion = MKCoordinateRegion(
+                        center: focusedAirport.coordinate,
+                        span: MKCoordinateSpan(latitudeDelta: 0.3, longitudeDelta: 0.3)
+                    )
+                }
+            )
+            .presentationDetents([.fraction(0.24), .medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
-        .sheet(isPresented: $isShowingAircraftDetailSheet) {
-            if let plane = selectedAircraft {
-                AircraftDetailSheet(
-                    aircraft: plane,
-                    route: flightService.activeRoute,
-                    flightService: flightService,
-                    onFocus: { focusedPlane in
-                        selectedAirport = nil
-                        selectedAircraft = focusedPlane
-                        targetRegion = MKCoordinateRegion(
-                            center: focusedPlane.coordinate,
-                            span: MKCoordinateSpan(latitudeDelta: 0.25, longitudeDelta: 0.25)
-                        )
-                    }
-                )
-            }
+        .sheet(item: $selectedAircraft) { plane in
+            AircraftDetailSheet(
+                aircraft: plane,
+                route: flightService.activeRoute,
+                flightService: flightService,
+                onFocus: { focusedPlane in
+                    selectedAirport = nil
+                    selectedAircraft = focusedPlane
+                    targetRegion = MKCoordinateRegion(
+                        center: focusedPlane.coordinate,
+                        span: MKCoordinateSpan(latitudeDelta: 0.25, longitudeDelta: 0.25)
+                    )
+                }
+            )
+            .presentationDetents([.fraction(0.24), .medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
     }
 
     // MARK: - Subviews
 
-    /// Floating top control bar with Show All Airports / Planes selector and Menu
-    private var topFloatingBar: some View {
-        HStack(alignment: .top) {
-            // Mode Picker: "All", "Airports", "Planes"
-            HStack(spacing: 4) {
-                ForEach(MapDisplayMode.allCases) { mode in
-                    Button {
-                        displayMode = mode
-                        if mode == .airportsOnly {
-                            selectedAircraft = nil
-                            flightService.clearActiveRoute()
-                        } else if mode == .planesOnly {
-                            selectedAirport = nil
+    /// Floating Controls Overlay: Small circular buttons floating in corners + center filter pills
+    private var cornerControlsOverlay: some View {
+        VStack {
+            // Top Row: Search (Leading) | Filter Pills (Center) | Layers & Settings (Trailing)
+            HStack(alignment: .top) {
+                // Top-leading: Search
+                circularControl(systemImage: "magnifyingglass") {
+                    isShowingQuickSearch = true
+                }
+
+                Spacer()
+
+                // Center: Filter pills ("All", "Airports", "Planes") with safe-area breathing room
+                filterPillsBar
+                    .padding(.top, 4)
+
+                Spacer()
+
+                // Top-trailing: Map Layers & Settings
+                VStack(spacing: 8) {
+                    // Map Layers Menu
+                    Menu {
+                        Section("Display Mode") {
+                            Button {
+                                displayMode = .planesAndAirports
+                            } label: {
+                                Label("Show All", systemImage: "square.grid.2x2")
+                            }
+                            Button {
+                                displayMode = .planesOnly
+                                selectedAirport = nil
+                            } label: {
+                                Label("Planes Only", systemImage: "airplane")
+                            }
+                            Button {
+                                displayMode = .airportsOnly
+                                selectedAircraft = nil
+                                flightService.clearActiveRoute()
+                            } label: {
+                                Label("Airports Only", systemImage: "airplane.circle")
+                            }
+                        }
+
+                        Section("Map Style") {
+                            Button {
+                                settings.mapStyle = .standard
+                            } label: {
+                                Label("Standard", systemImage: "map")
+                            }
+                            Button {
+                                settings.mapStyle = .imagery
+                            } label: {
+                                Label("Satellite", systemImage: "globe.americas")
+                            }
+                            Button {
+                                settings.mapStyle = .hybrid
+                            } label: {
+                                Label("Hybrid", systemImage: "square.3.layers.3d")
+                            }
                         }
                     } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: mode.icon)
-                                .font(.caption2)
-                            Text(mode.rawValue)
-                                .font(.caption)
-                                .fontWeight(displayMode == mode ? .bold : .medium)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .background(displayMode == mode ? Color.blue : Color.clear)
-                        .foregroundStyle(displayMode == mode ? .white : .primary)
-                        .clipShape(Capsule())
+                        Image(systemName: "square.2.layers.3d")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .frame(width: 44, height: 44)
+                            .background(.ultraThinMaterial, in: Circle())
+                            .shadow(color: .black.opacity(0.12), radius: 6, x: 0, y: 2)
                     }
-                    .buttonStyle(.plain)
+
+                    // Settings & More Menu
+                    Menu {
+                        Button {
+                            isShowingAirportSearch = true
+                        } label: {
+                            Label("Airports Directory", systemImage: "airplane.circle")
+                        }
+
+                        Divider()
+
+                        Button {
+                            isShowingUICustomization = true
+                        } label: {
+                            Label("UI Customization", systemImage: "paintpalette")
+                        }
+
+                        Button {
+                            isShowingSettings = true
+                        } label: {
+                            Label("Settings", systemImage: "gearshape")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .frame(width: 44, height: 44)
+                            .background(.ultraThinMaterial, in: Circle())
+                            .shadow(color: .black.opacity(0.12), radius: 6, x: 0, y: 2)
+                    }
                 }
             }
-            .padding(4)
-            .liquidGlass(isEnabled: settings.enableLiquidGlass, shape: .capsule)
-            .background(
-                settings.enableLiquidGlass ? AnyView(EmptyView()) : AnyView(
-                    Capsule().fill(.regularMaterial).shadow(color: .black.opacity(0.12), radius: 6, x: 0, y: 3)
-                )
-            )
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
 
             Spacer()
 
-            // Quick actions + Main Menu
-            VStack(spacing: 8) {
-                // Main Options Menu (Settings, UI Customization, Quick Search)
-                Menu {
-                    Button {
-                        isShowingQuickSearch = true
-                    } label: {
-                        Label("Flight Quick Search", systemImage: "magnifyingglass")
-                    }
+            // Bottom-trailing: Refresh & Locate
+            HStack(alignment: .bottom) {
+                Spacer()
 
-                    Button {
-                        isShowingAirportSearch = true
-                    } label: {
-                        Label("Airports Directory", systemImage: "airplane.circle")
-                    }
-
-                    Divider()
-
-                    Button {
-                        isShowingUICustomization = true
-                    } label: {
-                        Label("UI Customization", systemImage: "paintpalette")
-                    }
-
-                    Button {
-                        isShowingSettings = true
-                    } label: {
-                        Label("Settings", systemImage: "gearshape")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle.fill")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.blue)
-                        .frame(width: 38, height: 38)
-                        .liquidGlass(isEnabled: settings.enableLiquidGlass, shape: .circle)
-                        .background(
-                            settings.enableLiquidGlass ? AnyView(EmptyView()) : AnyView(
-                                Circle().fill(.regularMaterial).shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
-                            )
-                        )
-                }
-
-                // Flight Quick Search shortcut
-                Button {
-                    isShowingQuickSearch = true
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 38, height: 38)
-                        .liquidGlass(isEnabled: settings.enableLiquidGlass, shape: .circle)
-                        .background(
-                            settings.enableLiquidGlass ? AnyView(EmptyView()) : AnyView(
-                                Circle().fill(.regularMaterial).shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
-                            )
-                        )
-                }
-
-                // Refresh planes button
-                Button {
-                    Task {
-                        await refreshAircraft()
-                    }
-                } label: {
-                    ZStack {
-                        if flightService.isLoading {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                        } else {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 15, weight: .semibold))
+                VStack(spacing: 8) {
+                    // Refresh Button
+                    circularControl(systemImage: "arrow.clockwise") {
+                        Task {
+                            await refreshAircraft()
                         }
                     }
-                    .frame(width: 38, height: 38)
-                    .liquidGlass(isEnabled: settings.enableLiquidGlass, shape: .circle)
-                    .background(
-                        settings.enableLiquidGlass ? AnyView(EmptyView()) : AnyView(
-                            Circle().fill(.regularMaterial).shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
-                        )
-                    )
-                }
 
-                // Erie Re-center button
-                Button {
-                    targetRegion = MKCoordinateRegion(
-                        center: Self.erieCoordinate,
-                        span: MKCoordinateSpan(latitudeDelta: 1.5, longitudeDelta: 1.5)
-                    )
-                } label: {
-                    Image(systemName: "location.north.circle.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.indigo)
-                        .frame(width: 38, height: 38)
-                        .liquidGlass(isEnabled: settings.enableLiquidGlass, shape: .circle)
-                        .background(
-                            settings.enableLiquidGlass ? AnyView(EmptyView()) : AnyView(
-                                Circle().fill(.regularMaterial).shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
-                            )
+                    // Locate / Recenter Button
+                    circularControl(systemImage: "location.fill") {
+                        targetRegion = MKCoordinateRegion(
+                            center: Self.erieCoordinate,
+                            span: MKCoordinateSpan(latitudeDelta: 1.5, longitudeDelta: 1.5)
                         )
+                    }
                 }
+                .padding(.trailing, 16)
+                .padding(.bottom, 16)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
+        .safeAreaPadding(.top)
+        .safeAreaPadding(.bottom)
+    }
+
+    /// Filter pills ("All", "Airports", "Planes") with safe-area breathing room
+    private var filterPillsBar: some View {
+        HStack(spacing: 2) {
+            ForEach(MapDisplayMode.allCases) { mode in
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        displayMode = mode
+                    }
+                    if mode == .airportsOnly {
+                        selectedAircraft = nil
+                        flightService.clearActiveRoute()
+                    } else if mode == .planesOnly {
+                        selectedAirport = nil
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: mode.icon)
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(mode.rawValue)
+                            .font(.system(size: 12, weight: displayMode == mode ? .semibold : .regular))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(
+                        displayMode == mode
+                            ? settings.selectionAccentColor
+                            : Color.clear
+                    )
+                    .foregroundStyle(
+                        displayMode == mode
+                            ? Color.white
+                            : Color.primary
+                    )
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+        .shadow(color: .black.opacity(0.12), radius: 6, x: 0, y: 2)
+    }
+
+    private func circularControl(systemImage: String, action: @escaping () -> Void) -> some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            action()
+        } label: {
+            Image(systemName: systemImage)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 44, height: 44)
+                .background(.ultraThinMaterial, in: Circle())
+                .shadow(color: .black.opacity(0.12), radius: 6, x: 0, y: 2)
+        }
+        .buttonStyle(.plain)
     }
 
     /// Refresh aircraft using the user's selected ADS-B source and camera coordinates
@@ -494,149 +522,6 @@ struct ContentView: View {
             source: settings.selectedSource,
             customURL: settings.customDump1090URL
         )
-    }
-
-    /// Floating bottom card for selected aircraft
-    private func selectedAircraftQuickCard(_ plane: LiveAircraft) -> some View {
-        HStack(spacing: 12) {
-            Image("plane")
-                .resizable()
-                .renderingMode(.template)
-                .aspectRatio(contentMode: .fit)
-                .foregroundStyle(.blue)
-                .frame(width: 32, height: 32)
-                .rotationEffect(.degrees(plane.track ?? 0))
-                .padding(8)
-                .background(Color.blue.opacity(0.12))
-                .clipShape(Circle())
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(plane.displayName)
-                        .font(.subheadline)
-                        .fontWeight(.bold)
-
-                    if let type = plane.aircraftType {
-                        Text(type)
-                            .font(.caption2)
-                            .fontWeight(.semibold)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(Color.secondary.opacity(0.15))
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
-                    }
-                }
-
-                HStack(spacing: 6) {
-                    Text(plane.formattedAltitude)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text("•")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                    Text(plane.formattedSpeed)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let route = flightService.activeRoute {
-                    Text(route.summary)
-                        .font(.caption2)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.blue)
-                }
-            }
-
-            Spacer()
-
-            Button {
-                isShowingAircraftDetailSheet = true
-            } label: {
-                Text("Details")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-            }
-            .buttonStyle(.borderedProminent)
-
-            Button {
-                selectedAircraft = nil
-                flightService.clearActiveRoute()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(6)
-            }
-        }
-        .padding(14)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 5)
-    }
-
-    /// Floating bottom card for selected airport
-    private func selectedAirportQuickCard(_ airport: Airport) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: airport.type.systemImage)
-                .font(.title2)
-                .foregroundStyle(airport.type.tintColor)
-                .padding(10)
-                .background(airport.type.tintColor.opacity(0.15))
-                .clipShape(Circle())
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(airport.name)
-                        .font(.subheadline)
-                        .fontWeight(.bold)
-                        .lineLimit(1)
-
-                    if let iata = airport.iataCode, !iata.isEmpty {
-                        Text(iata)
-                            .font(.caption2)
-                            .fontWeight(.bold)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.blue.opacity(0.12))
-                            .foregroundStyle(.blue)
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
-                    }
-                }
-
-                Text("\(airport.municipality.isEmpty ? "" : airport.municipality + ", ")\(airport.formattedRegion)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            Button {
-                isShowingAirportDetailSheet = true
-            } label: {
-                Text("Details")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-            }
-            .buttonStyle(.borderedProminent)
-
-            Button {
-                selectedAirport = nil
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(6)
-            }
-        }
-        .padding(14)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 5)
     }
 }
 

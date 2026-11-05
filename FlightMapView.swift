@@ -57,6 +57,8 @@ final class PlaneIconCache {
             return .systemYellow
         case .highContrastGreen:
             return .systemGreen
+        case .customSingle:
+            return UIColor(settings.customPlaneColor)
         }
     }
 }
@@ -98,6 +100,7 @@ final class PlaneAnnotation: NSObject, MKAnnotation {
 
 final class PlaneAnnotationView: MKAnnotationView {
     static let reuseIdentifier = "PlaneAnnotationView"
+    private var currentSettings: AppSettings?
 
     override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
@@ -112,10 +115,12 @@ final class PlaneAnnotationView: MKAnnotationView {
         super.prepareForReuse()
         transform = .identity
         image = nil
+        currentSettings = nil
     }
 
     func configure(with planeAnnotation: PlaneAnnotation, settings: AppSettings) {
-        let color = PlaneIconCache.planeUIColor(for: planeAnnotation.aircraft, settings: settings)
+        self.currentSettings = settings
+        let color = isSelected ? settings.selectionAccentUIColor : PlaneIconCache.planeUIColor(for: planeAnnotation.aircraft, settings: settings)
         let baseSize: CGFloat = 26.0 * CGFloat(settings.planeIconScaleMultiplier)
         self.image = PlaneIconCache.shared.icon(color: color, size: baseSize)
         updateTransform(heading: planeAnnotation.heading, isSelected: isSelected)
@@ -123,13 +128,19 @@ final class PlaneAnnotationView: MKAnnotationView {
 
     private func updateTransform(heading: Double?, isSelected: Bool) {
         let headingRad = CGFloat((heading ?? 0.0) * .pi / 180.0)
-        let scale: CGFloat = isSelected ? 1.3 : 1.0
+        let scale: CGFloat = isSelected ? 1.25 : 1.0
         self.transform = CGAffineTransform(rotationAngle: headingRad).scaledBy(x: scale, y: scale)
     }
 
     override func setSelected(_ selected: Bool, animated: Bool) {
         super.setSelected(selected, animated: animated)
         guard let planeAnnotation = annotation as? PlaneAnnotation else { return }
+
+        if let settings = currentSettings {
+            let color = selected ? settings.selectionAccentUIColor : PlaneIconCache.planeUIColor(for: planeAnnotation.aircraft, settings: settings)
+            let baseSize: CGFloat = 26.0 * CGFloat(settings.planeIconScaleMultiplier)
+            self.image = PlaneIconCache.shared.icon(color: color, size: baseSize)
+        }
 
         let updates = {
             self.updateTransform(heading: planeAnnotation.heading, isSelected: selected)
@@ -168,26 +179,72 @@ final class AirportAnnotation: NSObject, MKAnnotation {
 
 // MARK: - Airport Annotation View
 
-final class AirportAnnotationView: MKMarkerAnnotationView {
+final class AirportAnnotationView: MKAnnotationView {
     static let reuseIdentifier = "AirportAnnotationView"
+
+    private let circleContainer = UIView()
+    private let iconImageView = UIImageView()
+    private let codeLabel = UILabel()
 
     override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
         canShowCallout = false
         displayPriority = .defaultLow
+
+        // Dark circle container
+        circleContainer.layer.cornerRadius = 12
+        circleContainer.layer.borderWidth = 1.5
+        circleContainer.backgroundColor = UIColor(white: 0.12, alpha: 0.94)
+        circleContainer.layer.shadowColor = UIColor.black.cgColor
+        circleContainer.layer.shadowOpacity = 0.45
+        circleContainer.layer.shadowRadius = 4
+        circleContainer.layer.shadowOffset = CGSize(width: 0, height: 2)
+        addSubview(circleContainer)
+
+        // Glyph Icon
+        iconImageView.contentMode = .scaleAspectFit
+        circleContainer.addSubview(iconImageView)
+
+        // White callout badge (only displayed when zoomed in)
+        codeLabel.font = .systemFont(ofSize: 9.5, weight: .bold)
+        codeLabel.textColor = .white
+        codeLabel.textAlignment = .center
+        codeLabel.backgroundColor = UIColor.black.withAlphaComponent(0.8)
+        codeLabel.layer.cornerRadius = 3.5
+        codeLabel.layer.masksToBounds = true
+        codeLabel.layer.borderWidth = 0.5
+        codeLabel.layer.borderColor = UIColor.white.withAlphaComponent(0.25).cgColor
+        addSubview(codeLabel)
+
+        frame = CGRect(x: 0, y: 0, width: 44, height: 44)
     }
 
     required init?(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(with airportAnnotation: AirportAnnotation) {
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        circleContainer.frame = CGRect(x: (bounds.width - 24) / 2, y: 2, width: 24, height: 24)
+        iconImageView.frame = CGRect(x: 4.5, y: 4.5, width: 15, height: 15)
+        codeLabel.frame = CGRect(x: (bounds.width - 38) / 2, y: 28, width: 38, height: 14)
+    }
+
+    func configure(with airportAnnotation: AirportAnnotation, settings: AppSettings, zoomLatitudeDelta: Double = 1.0) {
         let airport = airportAnnotation.airport
-        glyphImage = UIImage(systemName: airport.type.systemImage)
-        markerTintColor = UIColor(airport.type.tintColor)
-        titleVisibility = .adaptive
-        subtitleVisibility = .hidden
-        displayPriority = airport.type == .largeAirport ? .required : .defaultLow
+        let tintColor = settings.airportUIColor(for: airport.type)
+
+        circleContainer.layer.borderColor = tintColor.cgColor
+        iconImageView.image = UIImage(systemName: airport.type.systemImage)?
+            .withTintColor(tintColor, renderingMode: .alwaysOriginal)
+
+        codeLabel.text = airport.displayCode
+
+        // White label only shown when zoomed in (latitudeDelta <= 1.5 degrees)
+        let isZoomedIn = zoomLatitudeDelta <= 1.5
+        codeLabel.isHidden = !isZoomedIn || !settings.showAirportCodesOnMap
+
+        displayPriority = (airport.type == .largeAirport || isZoomedIn) ? .required : .defaultLow
     }
 }
 
@@ -211,7 +268,7 @@ struct FlightMapView: UIViewRepresentable {
     func makeUIView(context: Context) -> MKMapView {
         let mapView = MKMapView()
 
-        let config = MKStandardMapConfiguration(elevationStyle: .flat)
+        let config = MKStandardMapConfiguration(elevationStyle: .flat, emphasisStyle: .muted)
         config.pointOfInterestFilter = .excludingAll
         mapView.preferredConfiguration = config
         mapView.pointOfInterestFilter = .excludingAll
@@ -240,11 +297,11 @@ struct FlightMapView: UIViewRepresentable {
             }
         }
 
-        // 2. Map Style & POI Configuration (flat standard with POIs filtered)
+        // 2. Map Style & POI Configuration (muted standard with POIs filtered)
         switch settings.mapStyle {
         case .standard:
             if !(mapView.preferredConfiguration is MKStandardMapConfiguration) {
-                let config = MKStandardMapConfiguration(elevationStyle: .flat)
+                let config = MKStandardMapConfiguration(elevationStyle: .flat, emphasisStyle: .muted)
                 config.pointOfInterestFilter = .excludingAll
                 mapView.preferredConfiguration = config
             }
@@ -302,7 +359,11 @@ struct FlightMapView: UIViewRepresentable {
 
         for airport in airports {
             newAirportIdSet.insert(airport.id)
-            if coordinator.airportAnnotations[airport.id] == nil {
+            if let existing = coordinator.airportAnnotations[airport.id] {
+                if let view = mapView.view(for: existing) as? AirportAnnotationView {
+                    view.configure(with: existing, settings: settings, zoomLatitudeDelta: mapView.region.span.latitudeDelta)
+                }
+            } else {
                 let annotation = AirportAnnotation(airport: airport)
                 coordinator.airportAnnotations[airport.id] = annotation
                 airportsToAdd.append(annotation)
@@ -367,13 +428,14 @@ struct FlightMapView: UIViewRepresentable {
                     withIdentifier: AirportAnnotationView.reuseIdentifier,
                     for: airportAnnotation
                 ) as? AirportAnnotationView ?? AirportAnnotationView(annotation: airportAnnotation, reuseIdentifier: AirportAnnotationView.reuseIdentifier)
-                view.configure(with: airportAnnotation)
+                view.configure(with: airportAnnotation, settings: parent.settings, zoomLatitudeDelta: mapView.region.span.latitudeDelta)
                 return view
             }
             return nil
         }
 
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             if let planeAnnotation = view.annotation as? PlaneAnnotation {
                 parent.onSelectAircraft(planeAnnotation.aircraft)
             } else if let airportAnnotation = view.annotation as? AirportAnnotation {
@@ -397,7 +459,7 @@ struct FlightMapView: UIViewRepresentable {
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             if let polyline = overlay as? MKPolyline {
                 let renderer = MKPolylineRenderer(polyline: polyline)
-                renderer.strokeColor = .systemBlue
+                renderer.strokeColor = parent.settings.routeLineUIColor
                 renderer.lineWidth = 3.5
                 renderer.lineCap = .round
                 renderer.lineJoin = .round

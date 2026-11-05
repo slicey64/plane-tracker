@@ -1,12 +1,24 @@
 import SwiftUI
 import CoreLocation
 
-/// Sheet displaying airport data organized into clean, easy-to-read categories.
 struct AirportDetailSheet: View {
     let airport: Airport
     var service: AirportDataService
     var onFocus: ((Airport) -> Void)?
     @Environment(\.dismiss) private var dismiss
+
+    // FlightAware Airport Boards State
+    @State private var airportBoards: FlightAwareAirportBoards?
+    @State private var selectedBoardTab: AirportBoardTab = .departures
+    @State private var isLoadingBoards: Bool = false
+
+    enum AirportBoardTab: String, CaseIterable, Identifiable {
+        case departures = "Departures"
+        case arrivals = "Arrivals"
+        var id: String { rawValue }
+    }
+
+    private var settings = AppSettings.shared
 
     var body: some View {
         NavigationStack {
@@ -17,6 +29,13 @@ struct AirportDetailSheet: View {
 
                     // Quick Actions
                     actionButtons
+
+                    // Category: FlightAware Live Flight Boards (Gates & Schedules)
+                    if settings.isFlightAwareConfigured &&
+                       settings.airportBoardProvider == .flightAware &&
+                       settings.flightAwareEnableAirportBoards {
+                        flightBoardsCategory
+                    }
 
                     // Category 1: Codes & Identifiers
                     identifiersCategory
@@ -42,6 +61,9 @@ struct AirportDetailSheet: View {
                         dismiss()
                     }
                 }
+            }
+            .task {
+                await loadFlightBoards()
             }
         }
     }
@@ -76,78 +98,164 @@ struct AirportDetailSheet: View {
 
     private var actionButtons: some View {
         HStack(spacing: 12) {
-            Button {
-                service.togglePin(for: airport)
-            } label: {
-                Label(
-                    service.isPinned(airport) ? "Remove Pin" : "Pin to Map",
-                    systemImage: service.isPinned(airport) ? "mappin.slash" : "mappin.and.ellipse"
-                )
-                .fontWeight(.medium)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(service.isPinned(airport) ? .red : .blue)
-
             if let onFocus = onFocus {
                 Button {
                     onFocus(airport)
                     dismiss()
                 } label: {
-                    Label("Focus Map", systemImage: "location.fill")
-                        .fontWeight(.medium)
+                    Label("Show On Map", systemImage: "location.fill")
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            if let url = airport.mapsURL {
+                Link(destination: url) {
+                    Label("Apple Maps", systemImage: "map")
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
             }
         }
     }
 
+    /// FlightAware Live Airport Flight Boards Category (Gates, Flights, Delays)
+    private var flightBoardsCategory: some View {
+        CategoryCard(title: "Live Airport Flight Boards", systemImage: "airplane.departure", color: .teal) {
+            VStack(spacing: 10) {
+                Picker("Board", selection: $selectedBoardTab) {
+                    ForEach(AirportBoardTab.allCases) { tab in
+                        Text(tab.rawValue).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                if isLoadingBoards {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                        Text("Querying FlightAware flight boards...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .padding(.vertical, 10)
+                } else if let boards = airportBoards {
+                    let flights = selectedBoardTab == .departures ? boards.departures : boards.arrivals
+                    if flights.isEmpty {
+                        Text("No scheduled \(selectedBoardTab.rawValue.lowercased()) found right now.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 6)
+                    } else {
+                        ForEach(flights.prefix(8)) { fl in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(spacing: 6) {
+                                        Text(fl.ident)
+                                            .font(.subheadline)
+                                            .fontWeight(.bold)
+
+                                        if let type = fl.aircraftType {
+                                            Text(type)
+                                                .font(.caption2)
+                                                .padding(.horizontal, 4)
+                                                .padding(.vertical, 1)
+                                                .background(Color(.systemFill))
+                                                .clipShape(RoundedRectangle(cornerRadius: 3))
+                                        }
+                                    }
+
+                                    Text(fl.airportCode ?? fl.airportName ?? "Unknown")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    if let gate = fl.gate {
+                                        Text("Gate \(gate)")
+                                            .font(.caption)
+                                            .fontWeight(.semibold)
+                                            .foregroundStyle(.primary)
+                                    }
+
+                                    if let time = formatBoardTime(fl.scheduledTime) {
+                                        Text(time)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    if let status = fl.status {
+                                        Text(status)
+                                            .font(.caption2)
+                                            .foregroundStyle(.teal)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 2)
+
+                            if fl.id != flights.prefix(8).last?.id {
+                                Divider()
+                            }
+                        }
+                    }
+                } else {
+                    Text("Flight boards not loaded.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
     private var identifiersCategory: some View {
-        CategoryCard(title: "Identification & Codes", systemImage: "number.square.fill", color: .blue) {
-            DetailRow(label: "IATA Code", value: airport.iataCode ?? "N/A", isHighlighted: airport.iataCode != nil)
-            Divider()
-            DetailRow(label: "ICAO Code", value: airport.icaoCode ?? "N/A")
-            Divider()
-            DetailRow(label: "Local / FAA Code", value: airport.localCode ?? "N/A")
-            Divider()
-            DetailRow(label: "Airport Ident", value: airport.ident)
-            Divider()
-            DetailRow(label: "Database ID", value: "\(airport.id)")
+        CategoryCard(title: "Codes & Identifiers", systemImage: "barcode", color: .blue) {
+            DetailRow(label: "ICAO / Ident Code", value: airport.ident, isHighlighted: true)
+            if let iata = airport.iataCode, !iata.isEmpty {
+                Divider()
+                DetailRow(label: "IATA Code", value: iata, isHighlighted: true)
+            }
+            if let gps = airport.gpsCode, !gps.isEmpty {
+                Divider()
+                DetailRow(label: "GPS Code", value: gps)
+            }
+            if let local = airport.localCode, !local.isEmpty {
+                Divider()
+                DetailRow(label: "Local Code", value: local)
+            }
         }
     }
 
     private var classificationCategory: some View {
-        CategoryCard(title: "Facility Classification", systemImage: "tag.fill", color: airport.type.tintColor) {
-            DetailRow(label: "Facility Type", value: airport.type.displayName)
+        CategoryCard(title: "Facility Classification", systemImage: "building.2", color: .purple) {
+            DetailRow(label: "Airport Category", value: airport.type.rawValue, isHighlighted: true)
             Divider()
-            DetailRow(
-                label: "Scheduled Service",
-                value: airport.scheduledService ? "Yes (Commercial)" : "No (General / Private)"
-            )
+            DetailRow(label: "Scheduled Commercial Service", value: airport.scheduledService ? "Yes" : "No")
         }
     }
 
     private var locationCategory: some View {
-        CategoryCard(title: "Geographic Location", systemImage: "map.fill", color: .green) {
-            DetailRow(label: "City / Municipality", value: airport.municipality.isEmpty ? "Unincorporated" : airport.municipality)
+        CategoryCard(title: "Geographic & Navigation", systemImage: "location", color: .green) {
+            DetailRow(label: "Latitude", value: String(format: "%.6f°", airport.latitude))
+            Divider()
+            DetailRow(label: "Longitude", value: String(format: "%.6f°", airport.longitude))
+            Divider()
+            DetailRow(label: "Elevation", value: airport.formattedElevation)
+            if !airport.continent.isEmpty {
+                Divider()
+                DetailRow(label: "Continent", value: airport.continent)
+            }
+            Divider()
+            DetailRow(label: "Country", value: airport.isoCountry)
             Divider()
             DetailRow(label: "Region / State", value: airport.formattedRegion)
-            Divider()
-            DetailRow(label: "Coordinates", value: airport.formattedCoordinates)
-            Divider()
-            DetailRow(label: "Latitude", value: String(format: "%.6f", airport.latitude))
-            Divider()
-            DetailRow(label: "Longitude", value: String(format: "%.6f", airport.longitude))
-            Divider()
-            DetailRow(label: "Field Elevation", value: airport.formattedElevation)
         }
     }
 
     private var resourcesCategory: some View {
-        CategoryCard(title: "Web Resources", systemImage: "safari.fill", color: .purple) {
+        CategoryCard(title: "Web Resources", systemImage: "link", color: .orange) {
             if let wiki = airport.wikipediaLink, let url = URL(string: wiki) {
                 Link(destination: url) {
                     HStack {
@@ -176,6 +284,30 @@ struct AirportDetailSheet: View {
                 }
             }
         }
+    }
+
+    // MARK: - Helpers
+
+    private func formatBoardTime(_ iso: String?) -> String? {
+        guard let s = iso, s.count >= 16 else { return iso }
+        let startIndex = s.index(s.startIndex, offsetBy: 11)
+        let endIndex = s.index(s.startIndex, offsetBy: 16)
+        return "\(s[startIndex..<endIndex]) UTC"
+    }
+
+    private func loadFlightBoards() async {
+        guard settings.isFlightAwareConfigured &&
+              settings.airportBoardProvider == .flightAware &&
+              settings.flightAwareEnableAirportBoards else {
+            return
+        }
+
+        let code = airport.ident.isEmpty ? (airport.iataCode ?? "") : airport.ident
+        guard !code.isEmpty else { return }
+
+        isLoadingBoards = true
+        airportBoards = await FlightAwareService.shared.fetchAirportBoards(airportCode: code, apiKey: settings.flightAwareAPIKey)
+        isLoadingBoards = false
     }
 }
 
