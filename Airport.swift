@@ -3,7 +3,7 @@ import CoreLocation
 import SwiftUI
 
 /// Represents the classification type of an aviation facility with ranking for LOD filtering.
-nonisolated enum AirportType: String, CaseIterable, Identifiable, Sendable {
+nonisolated enum AirportType: String, CaseIterable, Identifiable, Sendable, Codable {
     case largeAirport = "large_airport"
     case mediumAirport = "medium_airport"
     case smallAirport = "small_airport"
@@ -59,7 +59,8 @@ nonisolated enum AirportType: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// SF Symbol icon associated with this category
+    /// SF Symbol icon associated with this category.
+    /// Note: "h.circle.fill" is the standard aviation symbol for heliports; "helicopter.fill" is not a system symbol in iOS.
     var systemImage: String {
         switch self {
         case .largeAirport:
@@ -69,7 +70,7 @@ nonisolated enum AirportType: String, CaseIterable, Identifiable, Sendable {
         case .smallAirport:
             return "airplane.departure"
         case .heliport:
-            return "helicopter.fill"
+            return "h.circle.fill"
         case .seaplaneBase:
             return "water.waves"
         case .balloonport:
@@ -81,8 +82,8 @@ nonisolated enum AirportType: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// Tint color for map pin and badges
-    var tintColor: Color {
+    /// Default tint color for map pin and badges (customizable in AppSettings)
+    var defaultTintColor: Color {
         switch self {
         case .largeAirport:
             return .blue
@@ -102,10 +103,14 @@ nonisolated enum AirportType: String, CaseIterable, Identifiable, Sendable {
             return .secondary
         }
     }
+
+    var tintColor: Color {
+        defaultTintColor
+    }
 }
 
 /// Represents an airport queried from the airports dataset.
-nonisolated struct Airport: Identifiable, Hashable, Sendable {
+nonisolated struct Airport: Identifiable, Hashable, Sendable, Codable {
     let id: Int
     let ident: String
     let type: AirportType
@@ -169,6 +174,11 @@ nonisolated struct Airport: Identifiable, Hashable, Sendable {
         let latDirection = latitude >= 0 ? "N" : "S"
         let lonDirection = longitude >= 0 ? "E" : "W"
         return String(format: "%.4f° %@, %.4f° %@", abs(latitude), latDirection, abs(longitude), lonDirection)
+    }
+
+    /// Apple Maps URL for this airport
+    var mapsURL: URL? {
+        URL(string: "http://maps.apple.com/?ll=\(latitude),\(longitude)&q=\(name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name)")
     }
 
     func hash(into hasher: inout Hasher) {
