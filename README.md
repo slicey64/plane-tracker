@@ -70,3 +70,4 @@ Pull requests are welcome, and if you want to provide any fixes, tweaks or added
 * Gate info, airport flight boards, historical flights, and aircraft age specs from [FlightAware AeroAPI](https://www.flightaware.com/commercial/aeroapi/) (optional user-provided API key).
 * Open flight route and aircraft database fallback from [adsbdb.com](https://adsbdb.com).
 * Plane photography from [jetapi.dev](https://jetapi.dev) querying JetPhotos.
+* Airline banners and logos from [Jxck-S/airline-logos](https://github.com/Jxck-S/airline-logos)
